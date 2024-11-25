@@ -1,0 +1,14 @@
+__pycache__
+.git
+.venv
+.mypy_cache
+node_modules
+.next
+.DS_Store
+*.pem
+.cache
+dist
+build
+coverage
+.env
+.env.*
