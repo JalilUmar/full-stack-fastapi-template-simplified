@@ -3,7 +3,7 @@
 
 # Should always be applied
 .nixpacks/
-.env
+# .env
 build/
 public/
 
@@ -83,3 +83,18 @@ $RECYCLE.BIN/
 
 # Windows shortcuts
 *.lnk
+
+
+*.tar.gz
+*.pub
+*.pem
+*.key
+*.crt
+*.csr
+*.pem
+*.p12
+*.pfx
+*.cer
+*.der
+*.crt
+*.key

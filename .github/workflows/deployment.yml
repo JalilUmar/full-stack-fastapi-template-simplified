@@ -1,0 +1,93 @@
+name: CI/CD Workflow
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Checkout the code
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+      - name: Compress Project Files
+        run: |
+          ls -la  # List all files before compression
+          tar --warning=no-file-changed --exclude='.git' --exclude='node_modules' -czvf app.tar.gz . || echo "Error: $?"
+          ls -la app.tar.gz  # Verify the archive was created
+
+      - name: Clear previous build on server
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            sudo rm -rf ~/full_stack_template
+            mkdir ~/full_stack_template
+
+      - name: Copy Project Files to Server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "app.tar.gz"
+          target: ~/full_stack_template
+          timeout: 300s          # Increase timeout to 5 minutes
+          command_timeout: 20m   # Increase command timeout
+          debug: true           # Enable debugging
+          use_insecure_cipher: true
+
+      - name: Upload app.tar.gz to server
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          script: |
+            cd ~/full_stack_template
+            sudo tar -xzf app.tar.gz
+
+            # Verify that the .env file is present
+            if [ -f .env ]; then
+              echo ".env file successfully transferred and extracted."
+            else
+              echo "Error: .env file not found."
+              exit 1
+            fi
+
+            # Step 6: Install necessary tools (pnpm, poetry, docker-compose)
+            sudo apt update
+            sudo apt install -y docker-compose curl python3-pip
+
+            # Install pnpm
+            curl -fsSL https://get.pnpm.io/install.sh | sh -
+
+            # Install poetry
+            curl -sSL https://install.python-poetry.org | python3 -
+
+            # Verify tool installations
+            pnpm -v
+            poetry --version
+            docker-compose --version
+            
+            # Stop and remove existing containers
+            docker compose -f docker-compose.prod.yml --env-file .env down
+
+            # Build and start production containers
+            docker compose -f docker-compose.prod.yml --env-file .env up -d --build

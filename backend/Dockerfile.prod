@@ -36,4 +36,4 @@ COPY . .
 
 EXPOSE 8000
 
-ENTRYPOINT ["poetry", "run", "fastapi", "run", "src"]
+ENTRYPOINT ["poetry", "run", "fastapi", "run", "--workers", "4", "src"]

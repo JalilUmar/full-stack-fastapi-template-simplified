@@ -35,6 +35,7 @@ services:
   backend:
     build: 
       context: ./backend
+      dockerfile: Dockerfile.prod
     ports:
       - 8000:8000
     networks:
@@ -44,8 +45,6 @@ services:
       - .env
     volumes:
       - ./backend:/app
-    command:
-      - --reload
     depends_on:
       db:
         condition: service_healthy
@@ -53,6 +52,7 @@ services:
   frontend:
     build:
       context: ./frontend
+      dockerfile: Dockerfile.prod
       args:
         NEXT_PUBLIC_API_LINK: ${NEXT_PUBLIC_API_LINK}
     networks:
