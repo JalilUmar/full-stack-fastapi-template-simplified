@@ -89,5 +89,18 @@ jobs:
             # Stop and remove existing containers
             docker compose -f docker-compose.prod.yml --env-file .env down
 
+            # Clean Docker system (safely)
+            # Remove build cache
+            docker builder prune -f --filter until=24h
+
+            # Remove unused images while keeping running containers
+            docker image prune -a -f
+
+            # Remove dangling volumes (except postgres data)
+            docker volume ls -q -f "dangling=true" | grep -v "meal_prep_app-db-data" | xargs -r docker volume rm
+
+            # Remove unused networks
+            docker network prune -f
+
             # Build and start production containers
             docker compose -f docker-compose.prod.yml --env-file .env up -d --build
