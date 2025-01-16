@@ -52,55 +52,60 @@ jobs:
           debug: true           # Enable debugging
           use_insecure_cipher: true
 
-      - name: Upload app.tar.gz to server
-        uses: appleboy/ssh-action@master
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: 22
-          script: |
-            cd ~/full_stack_template
-            sudo tar -xzf app.tar.gz
+      - name: Setup SSH and Deploy
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_PRIVATE_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          eval $(ssh-agent -s)
+          ssh-add ~/.ssh/deploy_key
+          ssh-keyscan -H $DEPLOY_HOST >> ~/.ssh/known_hosts
+          
+          ssh -i ~/.ssh/deploy_key $DEPLOY_USER@$DEPLOY_HOST "
+            cd ~/meal_prep &&
+            sudo tar -xzf app.tar.gz &&
 
-            # Verify that the .env file is present
-            if [ -f .env ]; then
-              echo ".env file successfully transferred and extracted."
-            else
-              echo "Error: .env file not found."
-              exit 1
-            fi
+            # Install Docker if not exists
+            if ! command -v docker &> /dev/null; then
+              echo 'Installing Docker...' &&
+              sudo apt-get update &&
+              sudo apt-get install -y ca-certificates curl gnupg &&
+              sudo install -m 0755 -d /etc/apt/keyrings &&
+              curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg &&
+              sudo chmod a+r /etc/apt/keyrings/docker.gpg &&
+              echo \"deb [arch=\$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \$(. /etc/os-release && echo \$VERSION_CODENAME) stable\" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null &&
+              sudo apt-get update &&
+              sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+            fi &&
 
-            # Step 6: Install necessary tools (pnpm, poetry, docker-compose)
-            sudo apt update
-            sudo apt install -y docker-compose curl python3-pip
-
-            # Install pnpm
-            curl -fsSL https://get.pnpm.io/install.sh | sh -
-
-            # Install poetry
-            curl -sSL https://install.python-poetry.org | python3 -
-
-            # Verify tool installations
-            pnpm -v
-            poetry --version
-            docker-compose --version
+            # Install Docker Compose if not exists
+            if ! command -v docker-compose &> /dev/null; then
+              echo 'Installing Docker Compose...' &&
+              sudo curl -L \"https://github.com/docker/compose/releases/download/v2.24.1/docker-compose-\$(uname -s)-\$(uname -m)\" -o /usr/local/bin/docker-compose &&
+              sudo chmod +x /usr/local/bin/docker-compose
+            fi &&
             
-            # Stop and remove existing containers
-            docker compose -f docker-compose.prod.yml --env-file .env down
-
-            # Clean Docker system (safely)
-            # Remove build cache
-            docker builder prune -f --filter until=24h
-
-            # Remove unused images while keeping running containers
-            docker image prune -a -f
-
-            # Remove dangling volumes (except postgres data)
-            docker volume ls -q -f "dangling=true" | grep -v "meal_prep_app-db-data" | xargs -r docker volume rm
-
-            # Remove unused networks
-            docker network prune -f
-
-            # Build and start production containers
-            docker compose -f docker-compose.prod.yml --env-file .env up -d --build
+            # Stop containers
+            docker-compose -f docker-compose.prod.yml --env-file .env down &&
+            
+            # Clean Docker system
+            docker system prune -f &&
+            docker image prune -f &&
+            
+            # Clean volumes except DB
+            for vol in \$(docker volume ls -q -f \"dangling=true\"); do
+              if [ \"\$vol\" != \"meal_prep_app-db-data\" ]; then
+                docker volume rm \$vol
+              fi
+            done &&
+            
+            # Clean networks
+            docker network prune -f &&
+            
+            # Rebuild and start
+            docker-compose -f docker-compose.prod.yml --env-file .env up -d --build
+          "
